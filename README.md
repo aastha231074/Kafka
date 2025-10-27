@@ -17,6 +17,129 @@ Traditional databases have limited **throughput** - the number of read/write ope
 
 ---
 
+## Case Study: StreamStore E-Commerce Platform
+
+### The Scenario
+Imagine an e-commerce website called **StreamStore** with multiple microservices handling different business operations:
+
+- **Order Service**: Processes customer orders
+- **Inventory Service**: Manages product stock levels
+- **Notification Service**: Sends order confirmations to customers
+- **Billing Service**: Generates and sends invoices
+- **Analytics Service**: Tracks sales data and metrics
+
+### The Traditional Architecture Problem
+
+When a customer places an order, a chain reaction is triggered:
+
+1. **Order Service** receives the order
+2. Calls **Inventory Service** to update stock (synchronous)
+3. Calls **Billing Service** to generate invoice (synchronous)
+4. Calls **Notification Service** to send confirmation (synchronous)
+5. Calls **Analytics Service** to record the sale (synchronous)
+
+![Traditional Tightly Coupled Architecture](screenshots/traditional_architecture.png)
+
+### Critical Problems
+
+#### 1. **Tight Coupling**
+Each service directly calls the next service in the chain. The Order Service needs to know about and communicate with every downstream service, creating complex dependencies.
+
+#### 2. **Synchronous Execution**
+Services operate in a linear, step-by-step manner. The Order Service must wait for each service to complete before moving to the next, leading to:
+- Slow response times for customers
+- Poor user experience during high traffic
+- Wasted resources waiting for operations to complete
+
+#### 3. **Single Point of Failure**
+If **any** service goes down or slows down, the **entire system** is affected:
+- A 10-minute inventory service outage creates a 2-hour order backlog
+- Customers can't place orders even though the Order Service is healthy
+- All operations grind to a halt due to one failing component
+
+#### 4. **Data Loss**
+When services are unavailable:
+- **Analytics Service** can't record critical sales data
+- Business intelligence and reporting suffer
+- Lost data means lost insights into customer behavior and revenue
+
+#### 5. **Scalability Nightmare**
+When traffic suddenly increases (e.g., during sales or holidays):
+- Can't scale individual services independently
+- Must scale the entire system even if only one service is bottlenecked
+- Resource inefficient and expensive
+
+### The Solution: Event-Driven Architecture with Kafka
+
+**Decouple the services** using Kafka as an event streaming platform:
+
+![Kafka Event-Driven Architecture](screenshots/broker_based.png)
+
+#### How It Works
+
+1. **Order Service** places an order and publishes an **"Order Created" event** to Kafka
+2. Multiple services independently subscribe to this event:
+   - **Inventory Service** reads the event and updates stock
+   - **Billing Service** reads the event and generates invoice
+   - **Notification Service** reads the event and sends confirmation
+   - **Analytics Service** reads the event and records the sale
+
+#### Benefits of the Kafka Solution
+
+**✅ Loose Coupling**
+- Services don't know about each other
+- Order Service only publishes events; it doesn't care who consumes them
+- Easy to add new services without modifying existing ones
+
+**✅ Asynchronous Execution**
+- Order Service publishes the event and immediately responds to the customer
+- Downstream services process events at their own pace
+- Fast response times even under heavy load
+
+**✅ Fault Tolerance**
+- If Inventory Service goes down, orders still get recorded
+- Kafka retains events, so when the service comes back up, it processes missed orders
+- No data loss, no backlog crisis
+
+**✅ Guaranteed Data Delivery**
+- Events are persisted in Kafka
+- Analytics Service gets all data even if it was temporarily down
+- Complete audit trail of all business events
+
+**✅ Independent Scalability**
+- Each service scales based on its own load
+- If Notification Service is slow, scale only that service
+- Cost-efficient resource utilization
+
+**✅ Real-Time Processing**
+- All services process events in real-time
+- Business operates efficiently even during traffic spikes
+- Better customer experience with instant confirmations
+
+#### Architecture Comparison
+
+**Before Kafka (Synchronous):**
+```
+Order → Inventory → Billing → Notification → Analytics
+(Each step waits for the previous one)
+Total Time: Sum of all service times
+Failure Impact: Complete system failure
+```
+
+**After Kafka (Asynchronous):**
+```
+Order → Kafka Topic: "order-events"
+           ↓
+    ┌──────┼──────┬──────┬──────┐
+    ↓      ↓      ↓      ↓      ↓
+Inventory Billing Notif. Analytics ...
+(All services work independently)
+Total Time: Only order publication time
+Failure Impact: Isolated to individual services
+```
+
+---
+
 ## The Solution: Apache Kafka
 
 ### What is Kafka?
