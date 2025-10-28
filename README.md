@@ -165,14 +165,22 @@ Kafka works **alongside** databases, not as a replacement:
 
 ### Core Components
 
-#### 1. **Topics**
+#### 1. **Brokers**
+Kafka brokers are servers that store data and serve client requests.
+
+- A Kafka cluster consists of multiple brokers for high availability
+- Each broker can handle thousands of reads and writes per second
+- Brokers communicate with each other to replicate data
+- Example: A typical production cluster might have 3-5 brokers
+
+#### 2. **Topics**
 Topics provide logical organization for messages, similar to tables in a database or folders in a file system.
 
 - Producers specify which topic to publish messages to
 - Topics are identified by name (e.g., `user-locations`, `chat-messages`)
 - Each topic can handle a different type of data stream
 
-#### 2. **Partitions**
+#### 3. **Partitions**
 Topics are divided into **partitions** for parallel processing and scalability.
 
 - Each partition is an ordered, immutable sequence of messages
@@ -185,21 +193,21 @@ Topics are divided into **partitions** for parallel processing and scalability.
 - **Ordering**: Messages within a partition maintain strict ordering
 - **Scalability**: Add more partitions to handle increased load
 
-#### 3. **Producers**
+#### 4. **Producers**
 Applications that publish messages to Kafka topics.
 
 - Specify the target topic for each message
 - Can optionally specify which partition to write to
 - Examples: Mobile apps sending location updates, chat clients sending messages
 
-#### 4. **Consumers**
+#### 5. **Consumers**
 Applications that read and process messages from Kafka topics.
 
 - Subscribe to one or more topics
 - Process messages at their own pace
 - Can be grouped for load balancing and fault tolerance
 
-#### 5. **Consumer Groups**
+#### 6. **Consumer Groups**
 A powerful feature that enables both queue and pub-sub patterns.
 
 **How Consumer Groups Work:**
@@ -223,6 +231,49 @@ Consumer 4 → Partition 3
 - **Load Balancing**: Work is distributed across consumers
 - **Fault Tolerance**: If Consumer 2 fails, Partition 1 gets reassigned to another consumer
 - **Scalability**: Match consumer count to partition count for optimal throughput
+
+#### 7. **ZooKeeper and KRaft: Cluster Coordination**
+
+**ZooKeeper (Legacy Approach - Kafka versions < 3.0)**
+
+ZooKeeper was the traditional coordination service used by Kafka to manage cluster metadata and operations.
+
+**Key Responsibilities:**
+- **Cluster Management**: Maintaining a registry of all active brokers in the cluster
+- **Leader Election**: Each Kafka partition has a leader broker, and ZooKeeper facilitates the election of partition leaders
+- **Metadata and Configuration Management**: Storing and managing topic configurations, partition assignments, and access control lists (ACLs)
+- **Health Monitoring**: Tracking broker health and triggering rebalancing when brokers fail
+![Zookeper](screenshots/zookeeper.png)
+
+**Limitations of ZooKeeper:**
+- External dependency requiring separate installation and maintenance
+- Additional operational complexity with another system to monitor
+- Scalability bottlenecks for large clusters
+- Added latency in metadata operations
+
+**KRaft: The Modern Solution (Kafka 3.0+)**
+
+KRaft (Kafka Raft) is the new consensus protocol that **eliminates the dependency on ZooKeeper** entirely.
+
+**What Changed:**
+- Kafka now manages its own metadata internally using the Raft consensus algorithm
+- No external coordination service required
+- Built directly into Kafka brokers
+
+**Benefits of KRaft:**
+- **Simplified Architecture**: One less system to deploy, configure, and maintain
+- **Better Scalability**: Supports clusters with millions of partitions (ZooKeeper struggled beyond 200,000)
+- **Faster Operations**: Metadata operations are significantly faster without external coordination
+- **Easier Deployment**: Fewer moving parts mean simpler setup and operations
+- **Improved Recovery**: Faster leader election and cluster recovery times
+- **Reduced Operational Overhead**: No need to manage ZooKeeper clusters separately
+
+**Migration Timeline:**
+- Kafka 3.0 (2021): KRaft introduced as early access
+- Kafka 3.3 (2022): KRaft marked production-ready
+- Kafka 4.0 (Future): ZooKeeper support will be completely removed
+
+**For New Deployments:** Always use KRaft mode - it's the future of Kafka and provides better performance and operational simplicity.
 
 ---
 
