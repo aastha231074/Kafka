@@ -1,7 +1,18 @@
-version: '3.11'
 services:
   kafka: 
     image: confluentinc/cp-kafka:8.1.0
     container_name: kafka
     ports: 
       - "9092:9092"
+    environment:
+    # This is kafka's built in system to manage it's own metadata and to manage cluster coordination internaly 
+      KAFKA_KRAFT_MODE: 'true'
+      CLUSTER_ID: '1L6g7nGhU-eAKfL--X25wo'
+      KAFKA_NODE:ID: 1
+      KAFKA_PROCESS_ROLES: broker, controller 
+      # This define what brokers are controlers and can vote in imp cluster decisions 
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # If we set the replication factor to 1 the kafka metadata that keeps track of each messages the consumer has read 
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1 # default is 3 
+      # specifies the network interface and ports on which the broker is listens or incomming connections from clients nd other brokers 
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0.9092, CONTROLLER://0.0.0.0.9093

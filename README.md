@@ -165,13 +165,37 @@ Kafka works **alongside** databases, not as a replacement:
 
 ### Core Components
 
-#### 1. **Brokers**
-Kafka brokers are servers that store data and serve client requests.
+#### 1. **Kafka Cluster and Brokers**
+
+Kafka is designed to run as a **cluster** made up of multiple nodes, and these nodes are called **Kafka brokers**.
 
 - A Kafka cluster consists of multiple brokers for high availability
 - Each broker can handle thousands of reads and writes per second
 - Brokers communicate with each other to replicate data
 - Example: A typical production cluster might have 3-5 brokers
+
+**What Brokers Do:**
+- **Store and manage data**: All events that are created and consumed are stored on brokers
+- **Organize data**: Messages are organized into topics and partitions
+- **Handle requests**: Process read/write requests from producers and consumers
+- **Ensure reliability**: Replicate data across brokers for fault tolerance
+
+**Cluster Architecture:**
+A Kafka cluster is shared by multiple Kafka brokers working together. Each broker:
+- Has a unique ID
+- Stores a subset of the cluster's partitions
+- Communicates with other brokers for replication and coordination
+
+**The Controller Broker:**
+One of the brokers in the cluster has the special role of the **controller**.
+
+**Controller Responsibilities:**
+- **Manage cluster state**: Keeps track of which brokers are alive
+- **Leader management**: Tracks which broker is the leader for each partition
+- **Failure handling**: Reassigns partitions when a broker fails
+- **Administration**: Handles all cluster administration tasks like creating/deleting topics
+
+**Important:** At any given time, only **one broker** is the active controller. If the controller fails, a new one is automatically elected from the remaining brokers.
 
 #### 2. **Topics**
 Topics provide logical organization for messages, similar to tables in a database or folders in a file system.
@@ -243,7 +267,6 @@ ZooKeeper was the traditional coordination service used by Kafka to manage clust
 - **Leader Election**: Each Kafka partition has a leader broker, and ZooKeeper facilitates the election of partition leaders
 - **Metadata and Configuration Management**: Storing and managing topic configurations, partition assignments, and access control lists (ACLs)
 - **Health Monitoring**: Tracking broker health and triggering rebalancing when brokers fail
-![Zookeper](screenshots/zookeeper.png)
 
 **Limitations of ZooKeeper:**
 - External dependency requiring separate installation and maintenance
@@ -274,6 +297,202 @@ KRaft (Kafka Raft) is the new consensus protocol that **eliminates the dependenc
 - Kafka 4.0 (Future): ZooKeeper support will be completely removed
 
 **For New Deployments:** Always use KRaft mode - it's the future of Kafka and provides better performance and operational simplicity.
+
+---
+
+## Setting Up Kafka with Docker
+
+### Docker Compose Configuration
+
+Below is a complete Docker Compose setup for running a **two-broker Kafka cluster** using KRaft mode (no ZooKeeper required).
+
+```yaml
+version: '3.8'
+
+services:
+  kafka-1:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-1
+    ports:
+      - "9092:9092"
+    environment:
+      # Enable KRaft mode - Kafka's built-in system to manage its own metadata
+      # and handle cluster coordination internally without ZooKeeper
+      KAFKA_KRAFT_MODE: 'true'
+      
+      # Unique cluster identifier shared by all brokers in the cluster
+      CLUSTER_ID: '1L6g3nBhU-eAKfL--X25wo'
+      
+      # Unique ID for this broker (must be unique across the cluster)
+      KAFKA_NODE_ID: 1
+      
+      # Defines the roles this broker will play
+      # 'broker' = handles client requests (producers/consumers)
+      # 'controller' = manages cluster metadata and leader elections
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      
+      # List of controller brokers that can vote in cluster decisions
+      # Format: NODE_ID@HOSTNAME:PORT
+      # This defines which brokers participate in leader election and metadata management
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9093'
+      
+      # Internal listener for broker-to-broker and controller communication
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      
+      # Defines the network listeners for different types of connections
+      # PLAINTEXT: For client connections (producers/consumers)
+      # CONTROLLER: For internal cluster coordination
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      
+      # Advertised address that clients use to connect to this broker
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
+      
+      # Addresses the broker listens on
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      
+      # Replication factor for the internal __consumer_offsets topic
+      # This topic tracks which messages each consumer has read
+      # Set to 1 for development (single broker setup)
+      # Set to 3 for production (requires at least 3 brokers)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+      
+      # Replication factor for internal transaction state topic
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
+      
+      # Minimum in-sync replicas for transaction log
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      
+      # Directory where Kafka stores log data
+      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+    networks:
+      - kafka-network
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-2
+    ports:
+      - "9093:9092"
+    environment:
+      KAFKA_KRAFT_MODE: 'true'
+      CLUSTER_ID: '1L6g3nBhU-eAKfL--X25wo'
+      
+      # Different node ID for second broker
+      KAFKA_NODE_ID: 2
+      
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      
+      # Different advertised port for second broker
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9093'
+      
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+    networks:
+      - kafka-network
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+
+networks:
+  kafka-network:
+    driver: bridge
+```
+
+### Environment Variables Explained
+
+| Variable | Description |
+|----------|-------------|
+| `KAFKA_KRAFT_MODE` | Enables KRaft consensus protocol (eliminates ZooKeeper dependency) |
+| `CLUSTER_ID` | Unique identifier for the Kafka cluster (must be same across all brokers) |
+| `KAFKA_NODE_ID` | Unique ID for each broker in the cluster (1, 2, 3, etc.) |
+| `KAFKA_PROCESS_ROLES` | Roles this node plays: `broker` (handles client requests), `controller` (manages cluster) |
+| `KAFKA_CONTROLLER_QUORUM_VOTERS` | List of brokers that participate in controller elections (format: `id@host:port`) |
+| `KAFKA_CONTROLLER_LISTENER_NAMES` | Name of listener used for controller communication |
+| `KAFKA_LISTENER_SECURITY_PROTOCOL_MAP` | Maps listener names to security protocols |
+| `KAFKA_ADVERTISED_LISTENERS` | Address published to clients for connecting to this broker |
+| `KAFKA_LISTENERS` | Addresses and ports this broker listens on |
+| `KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR` | Number of copies of consumer offset data (impacts fault tolerance) |
+| `KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR` | Replication for transaction state logs |
+| `KAFKA_TRANSACTION_STATE_LOG_MIN_ISR` | Minimum in-sync replicas required for transactions |
+| `KAFKA_LOG_DIRS` | Directory where Kafka stores partition data |
+
+### Key Configuration Notes
+
+**Replication Factor:**
+- **Development**: Set to `1` (single broker)
+- **Production**: Set to `3` (requires at least 3 brokers)
+- With 2 brokers, we use `2` for redundancy
+
+**Controller Quorum:**
+- Lists all brokers that can become controller
+- Format: `NODE_ID@HOSTNAME:INTERNAL_PORT`
+- Must include all controller-eligible brokers
+
+**Listeners:**
+- **PLAINTEXT**: Client connections (producers/consumers)
+- **CONTROLLER**: Internal cluster coordination
+- Brokers use different ports to avoid conflicts
+
+### Running the Cluster
+
+```bash
+# Start the cluster
+docker-compose up -d
+
+# Check broker status
+docker-compose ps
+
+# View logs
+docker-compose logs -f kafka-1
+docker-compose logs -f kafka-2
+
+# Stop the cluster
+docker-compose down
+
+# Stop and remove volumes (clean slate)
+docker-compose down -v
+```
+
+### Testing the Setup
+
+```bash
+# Create a topic with 4 partitions and replication factor 2
+docker exec -it kafka-1 kafka-topics --create \
+  --topic test-topic \
+  --partitions 4 \
+  --replication-factor 2 \
+  --bootstrap-server localhost:9092
+
+# List topics
+docker exec -it kafka-1 kafka-topics --list \
+  --bootstrap-server localhost:9092
+
+# Describe topic (shows partition distribution)
+docker exec -it kafka-1 kafka-topics --describe \
+  --topic test-topic \
+  --bootstrap-server localhost:9092
+
+# Produce messages
+docker exec -it kafka-1 kafka-console-producer \
+  --topic test-topic \
+  --bootstrap-server localhost:9092
+
+# Consume messages
+docker exec -it kafka-1 kafka-console-consumer \
+  --topic test-topic \
+  --from-beginning \
+  --bootstrap-server localhost:9092
+```
 
 ---
 
