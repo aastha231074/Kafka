@@ -187,7 +187,6 @@ def query_table_internal(db_name, table_name, conditions=None, limit=None):
     
     cursor.execute(query)
     results = cursor.fetchall()
-    results = json.dumps(results, indent=2, default=str)
     
     # Get column names
     column_names = [description[0] for description in cursor.description]
@@ -207,7 +206,7 @@ def query_table_internal(db_name, table_name, conditions=None, limit=None):
 
 def query_table(db_name, table_name):
     """
-    Query all rows from a SQLite table and return as JSON string.
+    Query all rows from a SQLite table and return as a list of dicts.
     """
     conn = sqlite3.connect(db_name)
     conn.row_factory = sqlite3.Row  # enables dict-like access
@@ -218,9 +217,7 @@ def query_table(db_name, table_name):
     
     conn.close()
     
-    # Convert rows to list of dicts, then to JSON
-    results = [dict(row) for row in rows]
-    return json.dumps(results, indent=2)
+    return [dict(row) for row in rows]
 
 def query_custom(db_name, sql_query):
     """Execute a custom SQL query"""
@@ -246,6 +243,37 @@ def query_custom(db_name, sql_query):
     
     return results
 
+def query_individual_item_price(db_name, product_id, table_name="inventory"):
+    conn = sqlite3.connect(db_name)
+    conn.row_factory = sqlite3.Row  # enables dict-like access
+    cursor = conn.cursor()
+    
+    # Use parameterized query to prevent SQL injection
+    cursor.execute(f"SELECT * FROM {table_name} WHERE product_id = ?", (product_id,))
+    
+    result = cursor.fetchone()
+    conn.close()
+    
+    # Return just the price value, or None if not found
+    return result["price"] if result else None
+
+def update_inventory_quantity(db_name, product_id, quantity_to_reduce, table_name="inventory"):
+    """Reduces inventory quantity for a specific product."""
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    
+    cursor.execute(f"""
+        UPDATE {table_name} 
+        SET quantity_in_stock = quantity_in_stock - ? 
+        WHERE product_id = ?
+    """, (quantity_to_reduce, product_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return cursor.rowcount > 0 
+
+
 # Example usage
 if __name__ == "__main__":
     DB_NAME = 'ecommerce.db'
@@ -264,7 +292,7 @@ if __name__ == "__main__":
     # query_table(DB_NAME, 'inventory', conditions="price < 50")
     
     print("\n=== ALL ORDERS ===")
-    query_table_internal(DB_NAME, 'orders')
+    query_table_internal(DB_NAME, 'sales')
     
     # print("\n=== COMPLETED ORDERS ===")
     # query_table(DB_NAME, 'orders', conditions="status = 'completed'")
