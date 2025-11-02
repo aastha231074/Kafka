@@ -68,14 +68,6 @@ async def checkout(order_data: CheckoutRequest):
             )
             
             producer.flush()
-            
-            # # Update inventory
-            # success = update_inventory_quantity('ecommerce.db', product_id, quantity)
-            # if not success:
-            #     raise HTTPException(status_code=400, detail=f"Insufficient inventory for product {product_id}")
-            
-            # # Add sale record
-            # add_sale('ecommerce.db', order_id, product_id, quantity, unit_price)
         
         return {"order_id": order_id, "status": "success", "message": "Checkout completed successfully"}
     
