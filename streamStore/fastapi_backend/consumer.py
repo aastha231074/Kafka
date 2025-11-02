@@ -3,7 +3,7 @@ import sqlite3
 from confluent_kafka import Consumer, KafkaError
 
 consumer_config = {
-    "bootstrap.servers": "localhost:9092",
+    "bootstrap.servers": "kafka:9092",
     "group.id": "order-tracker",
     "auto.offset.reset": "earliest",
     "enable.auto.commit": False  # Manual commit for reliability

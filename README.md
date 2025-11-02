@@ -560,7 +560,48 @@ Consumer Group C (Notification Service)
 ❌ Complex queries and transactions (use databases)  
 ❌ Low-frequency, transactional data (direct database writes are fine)
 
----
+## Errors I faced: 
+
+``` python 
+order-consumer  | %3|1762074824.055|FAIL|rdkafka#consumer-1| [thrd:localhost:9092/bootstrap]: localhost:9092/bootstrap: Connect to ipv4#127.0.0.1:9092 failed: Connection refused (after 0ms in state CONNECT, 558 identical error(s) suppressed)
+
+backend-1       | %3|1762074825.308|FAIL|rdkafka#producer-1| [thrd:localhost:9092/bootstrap]: localhost:9092/bootstrap: Connect to ipv4#127.0.0.1:9092 failed: Connection refused (after 0ms in state CONNECT, 65 identical error(s) suppressed)
+```
+
+## **What's Happening:**
+
+1. **`localhost:9092/bootstrap`** - Your consumer and producer are trying to connect to `localhost:9092`
+
+2. **`Connect to ipv4#127.0.0.1:9092 failed`** - They're attempting to connect to IP address `127.0.0.1` (which is localhost) on port `9092`
+
+3. **`Connection refused`** - The connection is being **rejected**
+
+## **Why Connection Refused?**
+
+In Docker, each container is isolated with its own network namespace. When your **consumer** or **backend** container tries to connect to `localhost:9092`:
+
+- `localhost` (127.0.0.1) refers to the **container itself**, NOT the host machine
+- Inside the consumer/backend container, there's NO Kafka running on port 9092
+- So the connection is refused
+
+## **Visual Explanation:**
+```
+┌─────────────────────────────────────────────────┐
+│              Docker Network                     │
+│                                                 │
+│  ┌──────────────┐      ┌──────────────┐         │
+│  │   Backend    │      │    Kafka     │         │
+│  │  Container   │      │  Container   │         │
+│  │              │      │              │         │
+│  │ localhost ❌  │──X──▶│  kafka:9092  │         │
+│  │   :9092      │      │              │         │
+│  └──────────────┘      └──────────────┘         │
+│         │                      ▲                │
+│         │                      │                │
+│         └──────────────────────┘                │
+│            Should use "kafka:9092" ✅           │
+└─────────────────────────────────────────────────┘
+```
 
 ## Summary
 

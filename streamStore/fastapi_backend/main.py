@@ -9,8 +9,12 @@ import sqlite3
 from confluent_kafka import Producer
 import json
 
+# - `localhost` (127.0.0.1) refers to the **container itself**, NOT the host machine
+# - Inside the consumer/backend container, there's NO Kafka running on port 9092
+# - So the connection is refused
+
 producer_config = {
-    'bootstrap.servers': 'localhost:9092'
+    'bootstrap.servers': 'kafka:9092'
 }
 
 producer = Producer(producer_config)

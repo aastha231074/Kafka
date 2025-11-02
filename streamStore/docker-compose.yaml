@@ -1,11 +1,53 @@
 services:
+  kafka: 
+    image: confluentinc/cp-kafka:8.1.0
+    container_name: kafka
+    ports: 
+      - "9092:9092"
+    environment:
+      KAFKA_KRAFT_MODE: 'true'
+      CLUSTER_ID: '1L6g7nGhU-eAKfL--X25wo'
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller 
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER 
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-log 
+    volumes:
+      - kafka-kraft:/var/lib/kafka/data
+    healthcheck:  # Add this
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
   backend:
     build: ./fastapi_backend
     ports:
       - "8000:8000"
     environment:
       - ENV=development
+    depends_on:
+      kafka:
+        condition: service_healthy  # Wait for Kafka to be healthy
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  consumer:
+    build: ./fastapi_backend
+    container_name: order-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy  # Wait for Kafka to be healthy
+      backend:
+        condition: service_started
+    environment:
+      - KAFKA_BROKER=kafka:9092
+      - PYTHONUNBUFFERED=1 
+    command: python consumer.py
+    restart: unless-stopped
 
   frontend:
     build: ./streamlit_app
@@ -16,3 +58,6 @@ services:
     depends_on:
       - backend
     command: streamlit run app.py --server.port 8501
+
+volumes: 
+  kafka-kraft:

@@ -61,7 +61,7 @@ for idx, product in enumerate(products):
                 <h4>{product['product_name']}</h4>
                 <p><em>{product['category']}</em></p>
                 <p><strong>Price: ${product['price']:.2f}</strong></p>
-                <p>📦 In stock: {product['quantity_in_stock']}</p>
+                <p>📦 In stock</p>
             </div>
             """, unsafe_allow_html=True)
         
