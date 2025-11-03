@@ -560,6 +560,360 @@ Consumer Group C (Notification Service)
 ❌ Complex queries and transactions (use databases)  
 ❌ Low-frequency, transactional data (direct database writes are fine)
 
+## Coding Example: Building a Kafka Application
+
+### Installation
+
+We'll use the **confluent-kafka** Python library, developed and maintained by Confluent. It provides a high-performance API for producing and consuming Kafka messages with a simple, intuitive interface.
+
+```bash
+pip install confluent-kafka
+```
+
+---
+
+### Producer Code: Sending Messages to Kafka
+
+The producer is responsible for publishing messages to Kafka topics.
+
+```python
+from confluent_kafka import Producer
+import json
+import uuid
+
+# Kafka Producer Configuration
+producer_config = {
+    # bootstrap.servers: Provides the initial hosts that act as the starting point
+    # for a Kafka client to discover the full set of alive servers in the cluster
+    # The client will automatically discover all other brokers in the cluster
+    'bootstrap.servers': 'localhost:9092'
+}
+
+# Create producer instance
+producer = Producer(producer_config)
+
+def delivery_report(err, msg):
+    """
+    Callback function triggered when a message is delivered (or fails)
+    """
+    if err:
+        print(f"❌ Delivery failed: {err}")
+    else:
+        print(f"✅ Message delivered: {msg.value().decode('utf-8')}")
+        print(f"   Topic: {msg.topic()}")
+        print(f"   Partition: {msg.partition()}")
+        print(f"   Offset: {msg.offset()}")
+
+# Sample order data
+order = {
+    "order_id": str(uuid.uuid4()),
+    "user": "lara",
+    "item": "frozen yogurt",
+    "quantity": 10
+}
+
+# Kafka works with bytes, so we need to serialize our data
+value = json.dumps(order).encode("utf-8")
+
+# Produce the message to the "orders" topic
+# If the topic doesn't exist, Kafka will create it automatically
+producer.produce(
+    topic="orders",
+    value=value,
+    callback=delivery_report  # Optional: get notification when message is delivered
+)
+
+# IMPORTANT: Kafka producers buffer messages for efficiency
+# Instead of sending messages one-by-one, they're batched together
+# flush() ensures all buffered messages are sent before the program exits
+# This prevents data loss if your application crashes
+producer.flush()
+
+print("Message sent successfully!")
+```
+
+**Key Concepts:**
+
+1. **bootstrap.servers**: Initial connection point to the Kafka cluster. The client will auto-discover other brokers.
+
+2. **Serialization**: Kafka stores and transports data as bytes, so we convert our JSON to bytes using `encode("utf-8")`.
+
+3. **Message Buffering**: Producers batch messages for efficiency. If your app receives 1000 messages/hour, Kafka sends them in optimized batches rather than individually.
+
+4. **flush()**: Ensures all buffered messages are sent. Critical for preventing data loss if the application crashes.
+
+5. **Delivery Report**: Optional callback that confirms successful delivery and provides metadata (partition, offset).
+
+---
+
+### Consumer Code: Reading Messages from Kafka
+
+The consumer reads and processes messages from Kafka topics.
+
+```python
+from confluent_kafka import Consumer, KafkaError
+import json
+
+# Kafka Consumer Configuration
+consumer_config = {
+    # Initial broker(s) to connect to
+    "bootstrap.servers": "localhost:9092",
+    
+    # Consumer group ID: consumers with the same group.id share the workload
+    # Each message is processed by only ONE consumer in the group
+    "group.id": "order-processing-service",
+    
+    # What to do when there's no initial offset or offset is out of range:
+    # 'earliest': start from the beginning of the topic
+    # 'latest': start from the end (only new messages)
+    "auto.offset.reset": "earliest",
+    
+    # Disable auto-commit for better reliability
+    # We'll manually commit after successfully processing each message
+    "enable.auto.commit": False
+}
+
+# Create consumer instance
+consumer = Consumer(consumer_config)
+
+# Subscribe to the "orders" topic
+# You can subscribe to multiple topics: consumer.subscribe(["orders", "payments", "inventory"])
+consumer.subscribe(["orders"])
+
+print("🔄 Consumer started. Waiting for messages...")
+
+try:
+    while True:
+        # Poll for new messages
+        # Kafka uses a PULL model: consumers ask for messages rather than Kafka pushing them
+        # This allows consumers to control the rate of consumption and process at their own pace
+        # Timeout: 1.0 second (returns None if no message within this time)
+        msg = consumer.poll(timeout=1.0)
+        
+        # No message available within the timeout
+        if msg is None:
+            continue
+        
+        # Check for errors
+        if msg.error():
+            if msg.error().code() == KafkaError._PARTITION_EOF:
+                # End of partition (not really an error)
+                print(f"📭 Reached end of partition {msg.partition()}")
+            else:
+                print(f"❌ Consumer error: {msg.error()}")
+            continue
+        
+        # Successfully received a message
+        # Deserialize the message value from bytes to string to JSON
+        value = msg.value().decode("utf-8")
+        order = json.loads(value)
+        
+        print(f"📦 Received order: {order}")
+        print(f"   Partition: {msg.partition()}, Offset: {msg.offset()}")
+        
+        # Process the order (your business logic here)
+        process_order(order)
+        
+        # Manually commit the offset after successful processing
+        # This ensures we don't lose messages if the consumer crashes
+        consumer.commit()
+
+except KeyboardInterrupt:
+    print("\n⚠️  Consumer interrupted by user")
+finally:
+    # Clean shutdown
+    consumer.close()
+    print("✅ Consumer closed gracefully")
+
+def process_order(order):
+    """
+    Your business logic to process the order
+    """
+    print(f"   Processing order {order['order_id']} for user {order['user']}")
+    # Update inventory, send notification, etc.
+```
+
+**Key Concepts:**
+
+1. **Consumer Groups**: Consumers with the same `group.id` form a consumer group and share the workload. Each message is delivered to only one consumer in the group.
+
+2. **Pull Model**: Kafka uses a pull-based approach where consumers request messages. This allows:
+   - Consumers to control their consumption rate
+   - Processing messages at their own pace
+   - Better backpressure handling
+
+3. **auto.offset.reset**: Determines where to start reading:
+   - `earliest`: Read from the beginning (useful for reprocessing)
+   - `latest`: Only read new messages (useful for real-time processing)
+
+4. **Manual Commit**: Disabling auto-commit and manually committing after processing ensures **at-least-once delivery** semantics. If the consumer crashes before committing, it will reprocess the message.
+
+5. **Polling Loop**: Continuously polls for messages with a timeout. Returns `None` if no messages are available.
+
+---
+
+## Kafka CLI Commands
+
+Kafka provides powerful command-line tools for managing topics, producing messages, and debugging.
+
+### List All Topics
+
+View all topics in your Kafka cluster:
+
+```bash
+docker exec -it kafka-1 kafka-topics \
+  --list \
+  --bootstrap-server localhost:9092
+```
+
+**Output:**
+```
+orders
+payments
+inventory
+user-events
+```
+
+---
+
+### Describe a Topic
+
+Get detailed information about a specific topic, including partition count, replication factor, and leader assignments:
+
+```bash
+docker exec -it kafka-1 kafka-topics \
+  --describe \
+  --topic orders \
+  --bootstrap-server localhost:9092
+```
+
+**Output:**
+```
+Topic: orders
+PartitionCount: 4
+ReplicationFactor: 2
+Configs: segment.bytes=1073741824
+
+Topic: orders  Partition: 0  Leader: 1  Replicas: 1,2  Isr: 1,2
+Topic: orders  Partition: 1  Leader: 2  Replicas: 2,1  Isr: 2,1
+Topic: orders  Partition: 2  Leader: 1  Replicas: 1,2  Isr: 1,2
+Topic: orders  Partition: 3  Leader: 2  Replicas: 2,1  Isr: 2,1
+```
+
+**Explanation:**
+- **Leader**: The broker responsible for all reads/writes for this partition
+- **Replicas**: Brokers storing copies of this partition's data
+- **ISR (In-Sync Replicas)**: Replicas that are fully caught up with the leader
+
+---
+
+### Create a Topic
+
+Create a new topic with custom configuration:
+
+```bash
+docker exec -it kafka-1 kafka-topics \
+  --create \
+  --topic orders \
+  --partitions 4 \
+  --replication-factor 2 \
+  --bootstrap-server localhost:9092
+```
+
+---
+
+### Consume Messages from CLI
+
+Read messages from a topic using the console consumer:
+
+```bash
+# Read all messages from the beginning
+docker exec -it kafka-1 kafka-console-consumer \
+  --topic orders \
+  --from-beginning \
+  --bootstrap-server localhost:9092
+
+# Read only new messages (from now)
+docker exec -it kafka-1 kafka-console-consumer \
+  --topic orders \
+  --bootstrap-server localhost:9092
+
+# Read with key and timestamp
+docker exec -it kafka-1 kafka-console-consumer \
+  --topic orders \
+  --from-beginning \
+  --property print.key=true \
+  --property print.timestamp=true \
+  --bootstrap-server localhost:9092
+```
+
+**Sample Output:**
+```
+{"order_id": "123e4567-e89b-12d3-a456-426614174000", "user": "lara", "item": "frozen yogurt", "quantity": 10}
+{"order_id": "223e4567-e89b-12d3-a456-426614174001", "user": "john", "item": "smoothie", "quantity": 5}
+```
+
+---
+
+### Produce Messages from CLI
+
+Send messages directly from the command line:
+
+```bash
+docker exec -it kafka-1 kafka-console-producer \
+  --topic orders \
+  --bootstrap-server localhost:9092
+```
+
+Then type messages (one per line) and press Enter:
+```
+{"order_id": "1", "user": "alice", "item": "coffee", "quantity": 2}
+{"order_id": "2", "user": "bob", "item": "tea", "quantity": 1}
+```
+
+---
+
+### Delete a Topic
+
+```bash
+docker exec -it kafka-1 kafka-topics \
+  --delete \
+  --topic orders \
+  --bootstrap-server localhost:9092
+```
+
+---
+
+### Consumer Group Management
+
+View consumer groups and their lag:
+
+```bash
+# List all consumer groups
+docker exec -it kafka-1 kafka-consumer-groups \
+  --list \
+  --bootstrap-server localhost:9092
+
+# Describe a specific consumer group
+docker exec -it kafka-1 kafka-consumer-groups \
+  --describe \
+  --group order-processing-service \
+  --bootstrap-server localhost:9092
+```
+
+**Output:**
+```
+GROUP                     TOPIC     PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
+order-processing-service  orders    0          150             150             0
+order-processing-service  orders    1          200             205             5
+order-processing-service  orders    2          180             180             0
+order-processing-service  orders    3          175             180             5
+```
+
+**LAG** indicates how many messages the consumer is behind. High lag means the consumer can't keep up with the producer rate.
+
+---
+
 ## Errors I faced: 
 
 ``` python 
@@ -568,7 +922,7 @@ order-consumer  | %3|1762074824.055|FAIL|rdkafka#consumer-1| [thrd:localhost:909
 backend-1       | %3|1762074825.308|FAIL|rdkafka#producer-1| [thrd:localhost:9092/bootstrap]: localhost:9092/bootstrap: Connect to ipv4#127.0.0.1:9092 failed: Connection refused (after 0ms in state CONNECT, 65 identical error(s) suppressed)
 ```
 
-## **What's Happening:**
+### **What's Happening:**
 
 1. **`localhost:9092/bootstrap`** - Your consumer and producer are trying to connect to `localhost:9092`
 
@@ -576,7 +930,7 @@ backend-1       | %3|1762074825.308|FAIL|rdkafka#producer-1| [thrd:localhost:909
 
 3. **`Connection refused`** - The connection is being **rejected**
 
-## **Why Connection Refused?**
+### **Why Connection Refused?**
 
 In Docker, each container is isolated with its own network namespace. When your **consumer** or **backend** container tries to connect to `localhost:9092`:
 
@@ -584,7 +938,7 @@ In Docker, each container is isolated with its own network namespace. When your 
 - Inside the consumer/backend container, there's NO Kafka running on port 9092
 - So the connection is refused
 
-## **Visual Explanation:**
+### **Visual Explanation:**
 ```
 ┌─────────────────────────────────────────────────┐
 │              Docker Network                     │
@@ -593,7 +947,7 @@ In Docker, each container is isolated with its own network namespace. When your 
 │  │   Backend    │      │    Kafka     │         │
 │  │  Container   │      │  Container   │         │
 │  │              │      │              │         │
-│  │ localhost ❌  │──X──▶│  kafka:9092  │         │
+│  │ localhost ❌ │──X──▶│  kafka:9092  │         │
 │  │   :9092      │      │              │         │
 │  └──────────────┘      └──────────────┘         │
 │         │                      ▲                │
