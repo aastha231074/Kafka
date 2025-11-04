@@ -17,6 +17,8 @@ Kafka Connect is a framework for connecting Apache Kafka with external systems s
 
 ## Architecture
 
+![Kafka-Connect Architecture](kafka-connect.png)
+
 ### Components
 
 ```
