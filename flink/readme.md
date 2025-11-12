@@ -135,6 +135,26 @@ The others: only 100 events/sec
 ```
 Result: Instance 4 is the bottleneck. The whole pipeline slows down!
 
+#### 3. Repartition (Random Distribution)
+What it is: Events are distributed randomly across all downstream instances. Each event has an equal chance of going anywhere.
+
+Visual:
+
+```python
+Operator A                     Operator B
+   Instance 1  ─┐
+   Instance 2  ─┼──randomly──►  Instance 1
+   Instance 3  ─┘    mix        Instance 2
+                                 Instance 3
+```
+
+Example:
+
+- You have 1000 images to process (resize, filter)
+- Each image is independent
+- Randomly distribute them to 10 worker instances
+- Each worker processes ~100 images
+- Why use it: When you want to shuffle data but don't care about any specific distribution pattern.
 
 ### 2. State
 State is memory of the past - information that Flink remembers across multiple events.
