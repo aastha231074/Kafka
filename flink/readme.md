@@ -47,6 +47,94 @@ In Flink, the "orders" are events, and the "chefs" are parallel operator instanc
 #### <b> The 4 Data Distribution Patterns </b>
 When data flows between operators in Flink, it needs to decide: "Which parallel instance should receive this event?" Here are the four main patterns:
 
+#### 1. Forward
+What it is: Events stay in the same partition - no shuffling at all.
+
+When it happens: When the upstream and downstream operators have the same parallelism and you want to maintain locality.
+
+Visual:
+```bash
+Operator A (Filter by shape)          Operator B (Resize)
+   Instance 1: square images  ─────►  Instance 1: resizes those squares
+   Instance 2: round images   ─────►  Instance 2: resizes those rounds
+```
+
+Key Points:
+- Instance 1's output goes ONLY to Instance 1 of the next operator
+- Instance 2's output goes ONLY to Instance 2 of the next operator
+- They stay in their own pipeline/lane
+- No mixing, no copying, no network shuffling
+- Why it's fast: No data movement across the network!
+
+#### 2. Parallel (Key-by / Hash Partitioning)
+What it is: Events are distributed based on a key (like user ID, product ID). All events with the same key always go to the same instance.
+
+Example:
+- Processing user purchases
+- Key = user_id
+- All purchases from "User123" always go to the same instance
+- That instance can maintain a counter for User123's total spending
+- Why it matters: Essential for stateful operations! You need all events for the same key in one place to maintain accurate state.
+
+Visual:
+```bash
+Operator A                     Operator B (grouped by key)
+   All events  ─────►  hash(key) ─────►  Instance 1: keys [A, D, G]
+                                         Instance 2: keys [B, E, H]
+                                         Instance 3: keys [C, F, I]
+```
+
+##### Why Keep All Data for a User_ID in One Instance?
+<b> The Problem: </b> Stateful Operations Need Co-location
+
+Imagine you're tracking: "Total amount spent by each user"
+
+❌ If user_123's events were scattered across instances:
+```python
+user_123 buys $50 headphones → Instance 1 (state: user_123 = $50)
+user_123 buys $30 cable      → Instance 3 (state: user_123 = $30)
+user_123 buys $20 adapter    → Instance 2 (state: user_123 = $20)
+
+Query: "How much has user_123 spent?"
+Answer: You'd have to ask all 3 instances and aggregate! 😰
+```
+<b> Problems: </b>
+- Expensive coordination between instances
+- Network overhead
+- Slower processing
+- Complex to implement correctly
+
+✅ With KeyBy - all user_123 events go to Instance 1:
+```python 
+user_123 buys $50 headphones → Instance 1 (state: user_123 = $50)
+user_123 buys $30 cable      → Instance 1 (state: user_123 = $80)
+user_123 buys $20 adapter    → Instance 1 (state: user_123 = $100)
+
+Query: "How much has user_123 spent?"
+Answer: Ask Instance 1 only! Instant result: $100 ✅
+```
+<b> Benefits: </b>
+- No coordination needed - each instance independently manages its users
+- Fast lookups - state is local
+- Simple to implement - just increment a counter
+- No network shuffling during computation
+
+##### The Data Skew Problem 
+<b> The Scenario: </b>
+```python
+100 users distributed across 4 instances:
+
+Instance 1: 25 normal users     → 100 events/sec
+Instance 2: 25 normal users     → 100 events/sec  
+Instance 3: 25 normal users     → 100 events/sec
+Instance 4: 24 normal users     → 100 events/sec
+            + 1 SUPER ACTIVE user → 10,000 events/sec ⚠️
+
+Total: Instance 4 is processing 10,100 events/sec!
+The others: only 100 events/sec
+```
+Result: Instance 4 is the bottleneck. The whole pipeline slows down!
+
 
 ### 2. State
 State is memory of the past - information that Flink remembers across multiple events.
