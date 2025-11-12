@@ -156,6 +156,62 @@ Example:
 - Each worker processes ~100 images
 - Why use it: When you want to shuffle data but don't care about any specific distribution pattern.
 
+#### 4. Rebalance (Round-Robin Distribution)
+What it is: Events are distributed evenly in a round-robin fashion. Much more balanced than random.
+
+Visual:
+
+```python 
+Operator A                     Operator B
+   Instance 1  ─┐              Instance 1 (gets 1st, 4th, 7th...)
+   Instance 2  ─┼─round-robin─►Instance 2 (gets 2nd, 5th, 8th...)
+   Instance 3  ─┘              Instance 3 (gets 3rd, 6th, 9th...)
+```
+
+Example:
+
+- Data source reads 1000 records
+- 4 downstream operators need to process them
+- Rebalance ensures each gets exactly 250 records (or as close as possible)
+
+<b> Why use it: </b>
+
+- Load balancing - ensures even distribution
+- Prevents one instance from being overwhelmed while others are idle
+- Better than random when you have data skew
+
+Comparison Table
+| Pattern | Distribution | Use Case | Network Cost |
+|-----------|-----------|-----------|-----------|
+| Forward | Same partition	Same parallelism | maintain locality | None (best)|
+| Parallel (KeyBy) | By hash of key | Stateful operations, grouping | Medium |
+| Repartition	Random | Independent tasks | don't care about distribution | High |
+| Rebalance | Round-robin | Load balancing, even distribution | High |
+
+Real-World Example: E-commerce Pipeline
+```python 
+Web Clicks Stream (parallelism=2)
+         │
+         ├─[Forward]─► Parse Clicks (parallelism=2)
+         │             (no reshuffling needed)
+         │
+         ├─[KeyBy user_id]─► Calculate User Sessions (parallelism=4)
+         │                   (need all clicks per user together)
+         │
+         ├─[Rebalance]─► Enrich with Product Data (parallelism=8)
+         │               (even load distribution)
+         │
+         └─[Repartition]─► Log to Storage (parallelism=3)
+                           (any instance can write)
+```
+Key Takeaway
+The choice of distribution pattern affects:
+
+- Performance: Forward is fastest (no network), others require data shuffling
+- Correctness: KeyBy is essential for stateful operations
+- Load balancing: Rebalance ensures even work distribution
+
+
 ### 2. State
 State is memory of the past - information that Flink remembers across multiple events.
 
