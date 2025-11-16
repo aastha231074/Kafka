@@ -1,0 +1,5 @@
+1. git clone https://github.com/confluentinc/learn-apache-flink-101-exercises.git
+2. cd learn-apache-flink-101-exercises
+3. docker compose up --build -d
+4. docker compose run sql-client
+5. docker compose down -v
